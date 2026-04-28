@@ -30,79 +30,54 @@ TileLang compiles these abstractions down to optimized CUDA/HIP/Metal code throu
 TileLang/
 ├── README.md              # This file
 ├── .gitignore             # Git ignore rules
-├── Basic_programs         # Basic TileLang programs (getting started)
-└── tilelang_real.py       # Full GEMM kernels with verification
+└── <program_folder>/      # Each program category gets its own folder
+    └── *.py               # TileLang kernel implementations
 ```
+
+> **Note:** Programs will be organized into dedicated folders as they are added — each folder will contain related kernels, utilities, and examples for a specific topic (e.g., GEMM, attention, convolution, etc.).
 
 ---
 
 ## 🚀 Programs
 
-### 1. `tilelang_real.py` — GEMM Kernels (Matrix Multiplication)
+Programs are organized into **dedicated folders** by topic. Each folder contains TileLang kernels, utilities, and examples for a specific area of GPU programming.
 
-This is the main program implementing two GPU kernels using TileLang's **lazy-style JIT API**:
+| Folder | Topic | Status |
+|---|---|---|
+| `gemm/` | Matrix multiplication kernels (GEMM, fused GEMM+ReLU) | 🔜 Coming soon |
+| `basics/` | Fundamental kernels (vector add, element-wise ops) | 🔜 Coming soon |
+| `attention/` | Attention kernels (Flash Attention style) | 🔜 Planned |
+| `convolution/` | Convolution kernels for deep learning | 🔜 Planned |
+| `reductions/` | Reduction & softmax kernels | 🔜 Planned |
 
-#### 🔹 Simple GEMM — `C = A × B`
+> More folders will be added as new programs are written. Each folder will include its own README with detailed explanations of the kernels inside.
 
-A clean, tiled matrix multiplication kernel demonstrating the core TileLang workflow:
+### What to Expect in Each Program
+
+Every program in this repo will follow this pattern using TileLang's **lazy-style JIT API**:
 
 ```python
-@tilelang.jit(target=TARGET)
-def simple_gemm(M, N, K, block_M=64, block_N=64, block_K=64, dtype=T.float16, accum_dtype=T.float32):
+import tilelang
+from tilelang import language as T
+
+@tilelang.jit(target="cuda")
+def my_kernel(M, N, block_M=64, block_N=64, dtype=T.float16):
     @T.prim_func
-    def kernel(A: T.Tensor((M, K), dtype), B: T.Tensor((K, N), dtype), C: T.Tensor((M, N), dtype)):
+    def kernel(A: T.Tensor((M, N), dtype), B: T.Tensor((M, N), dtype)):
         with T.Kernel(T.ceildiv(N, block_N), T.ceildiv(M, block_M), threads=128) as (bx, by):
-            A_shared = T.alloc_shared((block_M, block_K), dtype)
-            B_shared = T.alloc_shared((block_K, block_N), dtype)
-            C_local  = T.alloc_fragment((block_M, block_N), accum_dtype)
-            T.clear(C_local)
-            for ko in T.Pipelined(T.ceildiv(K, block_K), num_stages=3):
-                T.copy(A[by * block_M, ko * block_K], A_shared)
-                T.copy(B[ko * block_K, bx * block_N], B_shared)
-                T.gemm(A_shared, B_shared, C_local)
-            T.copy(C_local, C[by * block_M, bx * block_N])
+            # 1. Allocate shared memory & register tiles
+            # 2. Load data from global → shared memory
+            # 3. Compute on tiles (GEMM, element-wise, etc.)
+            # 4. Write results back to global memory
+            pass
     return kernel
 ```
 
-**How it works step-by-step:**
-
-1. **Grid Launch** — The output matrix `C (M×N)` is divided into tiles of size `block_M × block_N`. Each tile is assigned to one thread block on the GPU.
-2. **Shared Memory Allocation** — Each block allocates shared memory tiles `A_shared` and `B_shared` to stage data from global memory, enabling fast reuse across all 128 threads.
-3. **Accumulator Init** — A register-level fragment `C_local` is allocated for each thread's portion of the output tile and cleared to zero.
-4. **Pipelined K-Loop** — The inner dimension `K` is traversed in chunks of `block_K`. Using `T.Pipelined` with `num_stages=3` (triple buffering), the next iteration's memory loads overlap with the current iteration's compute — hiding memory latency.
-5. **Tile GEMM** — `T.gemm()` performs the matrix multiply-accumulate on the shared memory tiles, mapping to Tensor Core `mma` instructions on NVIDIA GPUs.
-6. **Write Back** — The accumulated result in registers is copied back to global memory.
-
-#### 🔹 GEMM + ReLU — `C = max(A × B, 0)`
-
-Extends the simple GEMM with a **fused ReLU activation**, demonstrating how to add element-wise operations after the matrix multiply without a separate kernel launch:
-
-```python
-# After the GEMM loop, before writing back:
-for i, j in T.Parallel(block_M, block_N):
-    C_local[i, j] = T.max(C_local[i, j], 0)
-```
-
-This fuses the activation directly into the GEMM kernel, avoiding an extra global memory round-trip that a separate ReLU kernel would require — a common optimization in deep learning inference.
-
-#### ⚙️ Execution Modes
-
-The program automatically detects the available hardware:
-
-| Environment | Behavior |
-|---|---|
-| **NVIDIA GPU (CUDA)** | Compiles & runs both kernels, verifies results against PyTorch `torch.matmul` |
-| **No GPU (CPU only)** | Generates and prints the TIR (Tensor IR) intermediate representation for inspection |
-
----
-
-### 2. `Basic_programs` — Getting Started
-
-Placeholder for basic TileLang programs covering fundamental concepts. Will be populated with:
-- Vector addition kernels
-- Element-wise operations
-- Simple reduction patterns
-- Memory hierarchy exploration
+Each program will include:
+- ✅ Detailed inline comments explaining every step
+- ✅ Automatic hardware detection (CUDA / CPU fallback for TIR generation)
+- ✅ Verification against PyTorch reference implementations
+- ✅ Step-by-step explanations in the folder's README
 
 ---
 
@@ -129,42 +104,11 @@ pip install torch tilelang
 ### Running
 
 ```bash
-# Run the GEMM kernels
-python tilelang_real.py
-```
+# Navigate into a program folder and run
+python <folder>/<script>.py
 
-**Expected output (with GPU):**
-```
-============================================================
-TileLang - Real GPU Programming Language
-============================================================
-
-CUDA available: True
-MPS available:  False
-
---- Running Simple GEMM on GPU ---
-Input A shape: torch.Size([256, 256])
-Input B shape: torch.Size([256, 256])
-Output C shape: torch.Size([256, 256])
-✓ Results match! Simple GEMM kernel works correctly.
-
---- Running GEMM with ReLU on GPU ---
-✓ Results match! GEMM ReLU kernel works correctly.
-```
-
-**Expected output (without GPU):**
-```
-============================================================
-TileLang - Real GPU Programming Language
-============================================================
-
-CUDA available: False
-MPS available:  True
-⚠ No CUDA GPU detected. Will generate TIR program only.
-
---- Generating TIR for Simple GEMM ---
-✓ TIR program generated successfully!
-<TIR source code...>
+# Example (once GEMM programs are added):
+python gemm/simple_gemm.py
 ```
 
 ---
@@ -196,9 +140,8 @@ MPS available:  True
 
 ## 📌 Roadmap
 
-- [x] Simple GEMM kernel
-- [x] Fused GEMM + ReLU kernel
-- [x] Automatic hardware detection (CUDA / CPU fallback)
+- [ ] GEMM kernels (simple, fused GEMM+ReLU)
+- [ ] Basic kernels (vector add, element-wise ops)
 - [ ] Attention kernel (Flash Attention style)
 - [ ] Convolution kernels
 - [ ] Reduction and softmax kernels
