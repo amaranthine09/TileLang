@@ -2,7 +2,7 @@ import tilelang
 import tilelang.language as T
 from tilelang import jit
 
-@jit  
+@jit
 def add(N: int, block: int = 256, dtype: str = 'float32'):
 
     @T.prim_func
