@@ -22,7 +22,7 @@ def tilelang_linear_kernel(M:int, N:int, K:int):
                 T.clear(C_local)
             for ko in T.Pipelined(T.ceildiv(K, ko), num_stages=2):
                 T.copy(X[by*128:(by+1)*128, ko*32:(ko+1)*32], X_shared)
-                T.copy(X[ko*32:(ko+1)*32, bx*128 :(bx+1)*128], W_shared)
+                T.copy(W[ko*32:(ko+1)*32, bx*128 :(bx+1)*128], W_shared)
                 T.gemma(X_shared, W_shared, C_local)
 
             for i,j in T.parallel(128, 128):
