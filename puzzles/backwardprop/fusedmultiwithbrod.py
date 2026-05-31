@@ -12,18 +12,18 @@ def tl_mul_relu_bcast(A, B, block_N: int, block_M: int):
     C = T.empty((N, M), dtype)
     
     with T.Kernel(T.ceildiv(N, block_N), T.ceildiv(M, block_M), threads = 256) as (bx, by):
-        A_shared = T.alloc_shared((block_N, block_M), "float16")
-        B_shared = T.alloc_shared((block_M,), "float16")
+        A_local = T.alloc_fragment((block_N, block_M), "float16")
+        B_local = T.alloc_fragment((block_M,), "float16")
         C_local = T.alloc_fragment((block_N, block_M), "float32")
 
         T.clear(C_local)
 
-        T.copy(A[bx*block_N: (bx+1)*block_N, by*block_M:(by+1)*block_M], A_shared)
-        T.copy(B[by*block_M: (by+1)*block_M], B_shared)
+        T.copy(A[bx*block_N: (bx+1)*block_N, by*block_M:(by+1)*block_M], A_local)
+        T.copy(B[by*block_M: (by+1)*block_M], B_local)
 
         for i, j in T.Parallel(block_N, block_M):
-            temp = A_shared[i, j]*B_shared[j]
-            C_local[i,j] = T.maximum(temp, T.float32(0))
+            C_local[i, j] = A_local[i, j] * B_local[j]
+            C_local[i, j] = T.if_then_else(C_local[i, j] > 0, C_local[i, j], 0)
         T.copy(C_local, C[bx*block_N:(bx+1)*block_N, by*block_M:(by+1)*block_M])
     return C
 
